@@ -143,7 +143,6 @@ void JdxdX(double X1, double X2, double X3, double fx_c, double fy_c, double,
                    t32) + X1 * X2 * pc2 * t10 * 4.0);
   for (k = 0; k < 6; k++) {
     b_JdxdX[k] = x[k];
-	std::cout << b_JdxdX[k] << std::endl;
   }
 }
 

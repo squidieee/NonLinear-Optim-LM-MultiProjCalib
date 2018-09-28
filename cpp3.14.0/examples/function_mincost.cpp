@@ -24,7 +24,7 @@
 */
 
 //void function_mincost(const std::vector<float>& params, const std::vector<cv::Point2d>& cam_pts, const std::vector<cv::Point2d>& proj_pts, cv::Mat_<float>& jac_A, cv::Mat_<float>& jac_B, cv::Mat_<float>& jac_C, cv::Mat_<float>& err)
-extern void function_mincost( const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<float>& err, cv::Mat_<double>& jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C)
+extern void function_mincost( const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, cv::Mat_<double>& jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C)
 {
 	using namespace cv;
 	if (params.size() != 23)
@@ -153,19 +153,19 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 	jac_B = Mat::zeros(2 * N, 4, CV_64FC1);
 	jac_C = Mat::zeros(2 * N, 9, CV_64FC1);
 
-	Mat_<double> J_dxdX (2, 3,CV_64FC1),
-				J_dxdfc(2, 2, CV_64FC1),
-				J_dxdcc(2, 2, CV_64FC1),
-				J_dxdkc(2, 5, CV_64FC1),
-				J_dXdfp(3, 2, CV_64FC1),
-				J_dXdcp(3, 2, CV_64FC1),
-				J_dXdR (3, 9, CV_64FC1),
-				J_dXdT (3, 3, CV_64FC1),
-				J_dXdS (3, 4, CV_64FC1);
-	
-	J_dxdcc = Mat::eye(3, 3, CV_64FC1);
 	for (int i = 0; i < N; i++)
 	{
+		Mat_<double> J_dxdX(3, 2, CV_64FC1),
+			J_dxdfc(2, 2, CV_64FC1),
+			J_dxdcc(2, 2, CV_64FC1),
+			J_dxdkc(5, 2, CV_64FC1),
+			J_dXdfp(2, 3, CV_64FC1),
+			J_dXdcp(2, 3, CV_64FC1),
+			J_dXdR(9, 3, CV_64FC1),
+			J_dXdT(3, 3, CV_64FC1),
+			J_dXdS(4, 3, CV_64FC1);
+		J_dxdcc = Mat::eye(2, 2, CV_64FC1);
+		
 		float r11 = R(0, 0);
 		float r12 = R(0, 1);
 		float r13 = R(0, 2);
@@ -176,7 +176,7 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 		float r32 = R(2, 1);
 		float r33 = R(2, 2);
 		
-		JdxdX(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*) J_dxdX.data);
+		JdxdX(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdX.data);
 		Jdxdfc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdfc.data);
 		Jdxdkc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdkc.data);
 			
@@ -191,13 +191,16 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 		JdXdS(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
 			T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdS.data);
 
+		transpose(J_dxdX, J_dxdX);
+		transpose(J_dxdfc, J_dxdfc);
+		transpose(J_dxdkc, J_dxdkc);
+		transpose(J_dXdfp, J_dXdfp);
+		transpose(J_dXdcp, J_dXdcp);
+		transpose(J_dXdR, J_dXdR);
+		transpose(J_dXdT, J_dXdT);
+		transpose(J_dXdS, J_dXdS);
 
 		Mat_<double> hcatMat;
-		std::cout << J_dxdX << std::endl;
-		std::cout << J_dXdR << std::endl;
-
-		std::cout << J_dRdom << std::endl;
-
 		hconcat(J_dxdX*J_dXdfp, J_dxdX*J_dXdcp, hcatMat);
 
 		hconcat(hcatMat, J_dxdX*J_dXdR*J_dRdom, hcatMat);
@@ -206,6 +209,6 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 		jac_B(Range(2 * i, 2 * i + 2), Range(0, jac_B.cols)) = J_dxdX*J_dXdS;
 		
 		hconcat(J_dxdfc, J_dxdcc, hcatMat);
-		hconcat(hcatMat, J_dxdkc, jac_C(Range(2 * i, 2 * i + 2), Range(0, jac_B.cols)));
+		hconcat(hcatMat, J_dxdkc, jac_C(Range(2 * i, 2 * i + 2), Range(0, jac_C.cols)));
 	}
 }

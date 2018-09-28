@@ -16,7 +16,7 @@ const int NPROJ = 4; // replace with global setting
 std::vector<std::vector<cv::Point2f>> m_cam_pts; // replace with displaycalibration member Make sure it is double
 std::vector<std::vector<cv::Point2f>> m_proj_pts; // replace with displaycalibration member
 
-void function_mincost(const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<float>& err, cv::Mat_<double> & jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C);
+void function_mincost(const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, cv::Mat_<double> & jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C);
 
 // TEST FUNCTION
 bool loadBlobData(const std::string& file_name, const int proj_idx)
@@ -40,22 +40,54 @@ bool loadBlobData(const std::string& file_name, const int proj_idx)
 	return !m_cam_pts[proj_idx].empty();
 }
 
-
-void convertCvArrayToemxArray()
-{
-
-}
-
 void func_err(const real_1d_array &params, real_1d_array &err, void *ptr)
 {
-	// call func_FC 
+	std::vector<double> all_err;
+	all_err.clear();
+	cv::Mat *p = static_cast<cv::Mat*>(ptr);
+	p->release();
 	
-	
+	for (int pi = 0; pi < NPROJ; pi++)
+	{
+		/// prepare params
+		std::vector<float> param_pi;
+		// get projector pi's 10 params
+		for (int vi = pi * 10; vi < pi * 10 + 10; vi++)
+		{
+			param_pi.push_back(params[vi]);
+		}
+		// get camera and sphere 13 params 
+		for (int vi = NPROJ * 10; vi < NPROJ * 10 + 13; vi++)
+		{
+			param_pi.push_back(params[vi]);
+		}
+		/// compute the error and jacobian matrix
+		std::vector<double> err_pi;
+		cv::Mat_<double> A, B, C;
+		function_mincost(param_pi, m_cam_pts[pi], m_proj_pts[pi], err_pi, A, B, C);
+		/// attach to err array
+		all_err.insert(all_err.end(), err_pi.begin(), err_pi.end());
+		/// compute jacobian
+		cv::Mat_<double> J_A_zero;
+		J_A_zero = cv::Mat::zeros(A.rows, NPROJ * 10, CV_64FC1);
+		J_A_zero(cv::Range(0, J_A_zero.rows), cv::Range(pi * 10, pi * 10 + 10)) = A;
+		cv::Mat_<double> J_pi;
+		cv::hconcat(J_A_zero, B, J_pi);
+		cv::hconcat(J_pi, C, J_pi);
+		if (p->empty())
+		{
+			*p = J_pi;
+		}
+		else
+			cv::vconcat(*p, J_pi, *p);
+	}
+	/// transfer to local data type real_1d_array
+	err.setcontent(all_err.size(), all_err.data());	
 }
 
-void func_jac(const real_1d_array &params, real_1d_array &err, void *ptr)
+void func_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
 {
-
+	// todo: transfer opencv jac matrix to real_2d_array
 }
 
 
@@ -88,13 +120,6 @@ void  function1_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &ja
 	//int *p = static_cast<int*>(ptr);
 	//std::cout << p[1] << std::endl;
 }
- void test(double a[4])
- {
-	 a[0] = 1;
-	 a[1] = 1;
-	 a[2] = 1;
-	 a[3] = 1;
- }
 
 int main(int argc, char **argv)
 {
@@ -117,21 +142,14 @@ int main(int argc, char **argv)
 	// todo : convert to emxarray
 
 	// step 2: hard-code initial guess vector
-//	double p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16425, 1.67746, -2.59486, -0.11809, 0.30305, 1.04268, 996.51215, 1002.67977, 512.06846, 771.93374, -0.96035, -0.25020, 2.72969, 0.58512, -0.29760, 0.52548, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16586, -0.71275, -0.11698, 0.73967, -0.36260, 0.65142, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
-	float p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
-	///TEST: test if func_FC works
-	std::vector<float> params (p0, p0 + sizeof(p0)/sizeof(float));
-	std::vector<float> err;
-	//function_mincost(params, m_cam_pts[0], m_proj_pts[0], err);
+	double p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16425, 1.67746, -2.59486, -0.11809, 0.30305, 1.04268, 996.51215, 1002.67977, 512.06846, 771.93374, -0.96035, -0.25020, 2.72969, 0.58512, -0.29760, 0.52548, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16586, -0.71275, -0.11698, 0.73967, -0.36260, 0.65142, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
+	//float p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
+	///TEST: test if func_FC works: yes it works
+	//std::vector<float> params (p0, p0 + sizeof(p0)/sizeof(float));
+	//std::vector<float> err;
 
-	cv::Mat AA= cv::Mat::eye(2, 2, CV_64FC1);
-	test((double* )AA.data);
-	//float a[4] = { 5,5,5,5 };
-	//std::memcpy(A.data, a, 2 * 2 * sizeof(float));
-	std::cout << AA << std::endl;
-	
-	cv::Mat_<double> A, B, C;
-	function_mincost(params, m_cam_pts[0], m_proj_pts[0], err, A, B, C);
+	//cv::Mat_<double> A, B, C;
+	//function_mincost(params, m_cam_pts[0], m_proj_pts[0], err, A, B, C);
 
 	// step 3: optimize
 	//real_1d_array param;
@@ -143,7 +161,10 @@ int main(int argc, char **argv)
 	//minlmreport rep;
 
 	//minlmcreatevj(2, param, state);
-	
+	real_1d_array err, params;
+	cv::Mat Jac;
+	params.setcontent(53, p0);
+	func_err(params, err, &Jac);
 	
 	////
 	//// This example demonstrates minimization of F(x0,x1) = f0^2+f1^2, where 

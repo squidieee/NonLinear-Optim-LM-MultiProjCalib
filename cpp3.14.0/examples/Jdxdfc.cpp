@@ -68,7 +68,7 @@ void Jdxdfc(double X1, double X2, double X3, double fx_c, double fy_c, double
   x[2] = 0.0;
   x[3] = (pc1 * (t7 + t2 * t4 * 3.0) + X2 * t9 * t13) + X1 * X2 * pc2 * t2 * 2.0;
   for (k = 0; k < 4; k++) {
-    b_Jdxdfc[k] = x[k];
+    b_Jdxdfc[k] = x[k];	
   }
 }
 
