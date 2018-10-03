@@ -1,12 +1,5 @@
 #include <opencv2/opencv.hpp>
-#include "JdXdcp.h"
-#include "JdXdR.h"
-#include "JdXdS.h"
-#include "JdXdT.h"
-#include "JdXdfp.h"
-#include "Jdxdfc.h"
-#include "Jdxdkc.h"
-#include "JdxdX.h"
+#include "lm_optim_jacobians.h"
 
 /* todo explain input output*/
 /*
@@ -23,10 +16,10 @@
 % X : 3 x NumberOfBlobs ->3d pts
 */
 
-//void function_mincost(const std::vector<float>& params, const std::vector<cv::Point2d>& cam_pts, const std::vector<cv::Point2d>& proj_pts, cv::Mat_<float>& jac_A, cv::Mat_<float>& jac_B, cv::Mat_<float>& jac_C, cv::Mat_<float>& err)
-extern void function_mincost( const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, cv::Mat_<double>& jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C)
+extern void function_mincost( const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, bool needJac, cv::Mat_<double>& jac_A = cv::Mat_<double>(), cv::Mat_<double>& jac_B = cv::Mat_<double>(), cv::Mat_<double>& jac_C = cv::Mat_<double>())
 {
 	using namespace cv;
+
 	if (params.size() != 23)
 	{
 		throw std::invalid_argument("cost function input param does not have size of 23. ");
@@ -40,6 +33,12 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 	Rodrigues(om, R, temp);
 	temp.convertTo(J_dRdom, CV_64FC1);
 	transpose(J_dRdom, J_dRdom);
+	temp = J_dRdom;
+	// re-order J_dRdom due to OpenCV Rodrigues
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			for (int k = 0; k < 3; k++)
+				J_dRdom.at<double>(3*i+j, k) = temp.at<float>(3*j + i, k);
 
 	Mat_<float> T =( Mat_<float>(3, 1, CV_32FC1) << params[7], params[8], params[9]); // projector extrinsic position
 	Mat_<float> S = (Mat_<float>(3, 1, CV_32FC1) << params[10], params[11], params[12]); // sphere pose position
@@ -142,73 +141,74 @@ extern void function_mincost( const std::vector<float>& params, std::vector<cv::
 	}
 
 	/// %%% compute error %%%
-	err.resize(N);
-	for (int i = 0; i < N; i++)
+	err.resize(N * 2);
+	for (int i = 0; i < err.size(); i++)
 	{
-		err[i] = cv::norm(cam_pts[i] - x_cam_est[i]);
+		err[i] = (i%2==0) ? x_cam_est[i/2].x - cam_pts[i / 2].x : x_cam_est[i/2].y - cam_pts[i / 2].y;
 	}
-
 	/// %%% compute jacobian %%%
-	jac_A = Mat::zeros(2 * N, 10, CV_64FC1);
-	jac_B = Mat::zeros(2 * N, 4, CV_64FC1);
-	jac_C = Mat::zeros(2 * N, 9, CV_64FC1);
-
-	for (int i = 0; i < N; i++)
+	if (needJac)
 	{
-		Mat_<double> J_dxdX(3, 2, CV_64FC1),
-			J_dxdfc(2, 2, CV_64FC1),
-			J_dxdcc(2, 2, CV_64FC1),
-			J_dxdkc(5, 2, CV_64FC1),
-			J_dXdfp(2, 3, CV_64FC1),
-			J_dXdcp(2, 3, CV_64FC1),
-			J_dXdR(9, 3, CV_64FC1),
-			J_dXdT(3, 3, CV_64FC1),
-			J_dXdS(4, 3, CV_64FC1);
-		J_dxdcc = Mat::eye(2, 2, CV_64FC1);
-		
-		float r11 = R(0, 0);
-		float r12 = R(0, 1);
-		float r13 = R(0, 2);
-		float r21 = R(1, 0);
-		float r22 = R(1, 1);
-		float r23 = R(1, 2);
-		float r31 = R(2, 0);
-		float r32 = R(2, 1);
-		float r33 = R(2, 2);
-		
-		JdxdX(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdX.data);
-		Jdxdfc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdfc.data);
-		Jdxdkc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdkc.data);
-			
-		JdXdfp(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33, 
-							T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdfp.data);
-		JdXdcp(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
-			T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdcp.data);
-		JdXdR(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
-			T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdR.data);
-		JdXdT(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
-			T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdT.data);
-		JdXdS(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
-			T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdS.data);
+		jac_A = Mat::zeros(2 * N, 10, CV_64FC1);
+		jac_B = Mat::zeros(2 * N, 4, CV_64FC1);
+		jac_C = Mat::zeros(2 * N, 9, CV_64FC1);
 
-		transpose(J_dxdX, J_dxdX);
-		transpose(J_dxdfc, J_dxdfc);
-		transpose(J_dxdkc, J_dxdkc);
-		transpose(J_dXdfp, J_dXdfp);
-		transpose(J_dXdcp, J_dXdcp);
-		transpose(J_dXdR, J_dXdR);
-		transpose(J_dXdT, J_dXdT);
-		transpose(J_dXdS, J_dXdS);
+		for (int i = 0; i < N; i++)
+		{
+			Mat_<double> J_dxdX(3, 2, CV_64FC1),
+				J_dxdfc(2, 2, CV_64FC1),
+				J_dxdcc(2, 2, CV_64FC1),
+				J_dxdkc(5, 2, CV_64FC1),
+				J_dXdfp(2, 3, CV_64FC1),
+				J_dXdcp(2, 3, CV_64FC1),
+				J_dXdR(9, 3, CV_64FC1),
+				J_dXdT(3, 3, CV_64FC1),
+				J_dXdS(4, 3, CV_64FC1);
+			J_dxdcc = Mat::eye(2, 2, CV_64FC1);
 
-		Mat_<double> hcatMat;
-		hconcat(J_dxdX*J_dXdfp, J_dxdX*J_dXdcp, hcatMat);
+			float r11 = R(0, 0);
+			float r12 = R(0, 1);
+			float r13 = R(0, 2);
+			float r21 = R(1, 0);
+			float r22 = R(1, 1);
+			float r23 = R(1, 2);
+			float r31 = R(2, 0);
+			float r32 = R(2, 1);
+			float r33 = R(2, 2);
 
-		hconcat(hcatMat, J_dxdX*J_dXdR*J_dRdom, hcatMat);
-		hconcat(hcatMat, J_dxdX*J_dXdT, jac_A(Range(2 * i, 2 * i + 2), Range(0, jac_A.cols)));
-			
-		jac_B(Range(2 * i, 2 * i + 2), Range(0, jac_B.cols)) = J_dxdX*J_dXdS;
-		
-		hconcat(J_dxdfc, J_dxdcc, hcatMat);
-		hconcat(hcatMat, J_dxdkc, jac_C(Range(2 * i, 2 * i + 2), Range(0, jac_C.cols)));
+			lmoptim::JdxdX(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdX.data);
+			lmoptim::Jdxdfc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdfc.data);
+			lmoptim::Jdxdkc(X[i].x, X[i].y, X[i].z, fc[0], fc[1], cc[0], cc[1], kc[0], kc[1], kc[2], pc[0], pc[1], (double*)J_dxdkc.data);
+
+			lmoptim::JdXdfp(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
+				T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdfp.data);
+			lmoptim::JdXdcp(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
+				T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdcp.data);
+			lmoptim::JdXdR(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
+				T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdR.data);
+			lmoptim::JdXdT(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
+				T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdT.data);
+			lmoptim::JdXdS(fp[0], fp[1], cp[0], cp[1], r11, r21, r31, r12, r22, r32, r13, r23, r33,
+				T(0), T(1), T(2), S(0), S(1), S(2), r, proj_pts[i].x, proj_pts[i].y, (double*)J_dXdS.data);
+
+			transpose(J_dxdX, J_dxdX);
+			transpose(J_dxdfc, J_dxdfc);
+			transpose(J_dxdkc, J_dxdkc);
+			transpose(J_dXdfp, J_dXdfp);
+			transpose(J_dXdcp, J_dXdcp);
+			transpose(J_dXdR, J_dXdR);
+			transpose(J_dXdT, J_dXdT);
+			transpose(J_dXdS, J_dXdS);
+
+			Mat_<double> hcatMat;
+			hconcat(J_dxdX*J_dXdfp, J_dxdX*J_dXdcp, hcatMat);
+
+			hconcat(hcatMat, J_dxdX*J_dXdR*J_dRdom, hcatMat);
+			hconcat(hcatMat, J_dxdX*J_dXdT, jac_A(Range(2 * i, 2 * i + 2), Range(0, jac_A.cols)));
+			jac_B(Range(2 * i, 2 * i + 2), Range(0, jac_B.cols)) = J_dxdX*J_dXdS;
+
+			hconcat(J_dxdfc, J_dxdcc, hcatMat);
+			hconcat(hcatMat, J_dxdkc, jac_C(Range(2 * i, 2 * i + 2), Range(0, jac_C.cols)));
+		}
 	}
 }

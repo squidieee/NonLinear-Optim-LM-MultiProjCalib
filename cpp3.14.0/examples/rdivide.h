@@ -16,9 +16,10 @@
 #include <stdlib.h>
 #include "rtwtypes.h"
 
-// Function Declarations
-extern double rdivide(double x, double y);
-
+namespace lmoptim {
+	// Function Declarations
+	extern double rdivide(double x, double y);
+}
 #endif
 
 //

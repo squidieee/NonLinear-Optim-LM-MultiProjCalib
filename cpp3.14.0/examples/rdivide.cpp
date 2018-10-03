@@ -12,19 +12,20 @@
 #include "rt_nonfinite.h"
 #include "JdXdcp.h"
 #include "rdivide.h"
+namespace lmoptim {
 
-// Function Definitions
+	// Function Definitions
 
-//
-// Arguments    : double x
-//                double y
-// Return Type  : double
-//
-double rdivide(double x, double y)
-{
-  return x / y;
+	//
+	// Arguments    : double x
+	//                double y
+	// Return Type  : double
+	//
+	double rdivide(double x, double y)
+	{
+		return x / y;
+	}
 }
-
 //
 // File trailer for rdivide.cpp
 //

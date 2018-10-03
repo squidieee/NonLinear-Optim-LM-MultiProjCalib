@@ -12261,8 +12261,8 @@ void minlmoptimize(minlmstate &state,
     alglib_impl::ae_assert(jac!=NULL,  "ALGLIB: error in 'minlmoptimize()' (jac is NULL)", &_alglib_env_state);
     while( alglib_impl::minlmiteration(state.c_ptr(), &_alglib_env_state) )
     {
-        _ALGLIB_CALLBACK_EXCEPTION_GUARD_BEGIN
-                if( state.needfi )
+		_ALGLIB_CALLBACK_EXCEPTION_GUARD_BEGIN
+				if( state.needfi )
                 {
                     fvec(state.x, state.fi, ptr);
                     continue;

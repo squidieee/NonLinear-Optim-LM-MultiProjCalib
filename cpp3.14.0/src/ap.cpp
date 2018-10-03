@@ -8040,8 +8040,11 @@ void alglib::real_2d_array::setcontent(ae_int_t irows, ae_int_t icols, const dou
     
     // copy
     for(i=0; i<irows; i++)
-        for(j=0; j<icols; j++)
-            ptr->ptr.pp_double[i][j] = pContent[i*icols+j];
+		for (j = 0; j < icols; j++)
+		{
+			ptr->ptr.pp_double[i][j] = pContent[i*icols + j];
+			//std::cout << ptr->ptr.pp_double[i][j] << std::endl;
+		}
 }
 
 void alglib::real_2d_array::attach_to_ptr(ae_int_t irows, ae_int_t icols, double *pContent )

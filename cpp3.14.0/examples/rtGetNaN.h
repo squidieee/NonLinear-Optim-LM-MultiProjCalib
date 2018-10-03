@@ -13,10 +13,10 @@
 #include <stddef.h>
 #include "rtwtypes.h"
 #include "rt_nonfinite.h"
-
-extern real_T rtGetNaN(void);
-extern real32_T rtGetNaNF(void);
-
+namespace lmoptim {
+	extern real_T rtGetNaN(void);
+	extern real32_T rtGetNaNF(void);
+}
 #endif
 
 /*

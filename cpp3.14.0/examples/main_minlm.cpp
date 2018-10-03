@@ -16,7 +16,7 @@ const int NPROJ = 4; // replace with global setting
 std::vector<std::vector<cv::Point2f>> m_cam_pts; // replace with displaycalibration member Make sure it is double
 std::vector<std::vector<cv::Point2f>> m_proj_pts; // replace with displaycalibration member
 
-void function_mincost(const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, cv::Mat_<double> & jac_A, cv::Mat_<double>& jac_B, cv::Mat_<double>& jac_C);
+void function_mincost(const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, bool needJac, cv::Mat_<double>& jac_A = cv::Mat_<double>(), cv::Mat_<double>& jac_B = cv::Mat_<double>(), cv::Mat_<double>& jac_C = cv::Mat_<double>());
 
 // TEST FUNCTION
 bool loadBlobData(const std::string& file_name, const int proj_idx)
@@ -40,16 +40,14 @@ bool loadBlobData(const std::string& file_name, const int proj_idx)
 	return !m_cam_pts[proj_idx].empty();
 }
 
-void func_err(const real_1d_array &params, real_1d_array &err, void *ptr)
+void func_err(const real_1d_array &params, real_1d_array &fi, void *ptr)
 {
 	std::vector<double> all_err;
 	all_err.clear();
-	cv::Mat *p = static_cast<cv::Mat*>(ptr);
-	p->release();
-	
+
 	for (int pi = 0; pi < NPROJ; pi++)
 	{
-		/// prepare params
+		/// step 1: prepare params
 		std::vector<float> param_pi;
 		// get projector pi's 10 params
 		for (int vi = pi * 10; vi < pi * 10 + 10; vi++)
@@ -61,64 +59,139 @@ void func_err(const real_1d_array &params, real_1d_array &err, void *ptr)
 		{
 			param_pi.push_back(params[vi]);
 		}
-		/// compute the error and jacobian matrix
+		/// step 2: compute the error
+		std::vector<double> err_pi;
+		function_mincost(param_pi, m_cam_pts[pi], m_proj_pts[pi], err_pi, false);
+		/// step 3: attach to err array
+		all_err.insert(all_err.end(), err_pi.begin(), err_pi.end());
+	}
+	/// step 4: transfer to local data type real_1d_array
+	for (int i = 0; i < all_err.size(); i++)
+	{
+		fi[i] = all_err[i];
+	}
+	double fx_err = cv::norm(all_err);
+	std::cout << "errV "<< fx_err << std::endl;
+}
+
+/// This function is called by minlmoptimize before func_err
+void func_jac(const real_1d_array &params, real_1d_array &fi, real_2d_array &jac, void *ptr)
+{
+	std::vector<double> all_err;
+	all_err.clear();
+	cv::Mat_<double> Jac;
+	for (int pi = 0; pi < NPROJ; pi++)
+	{
+		/// step 1: prepare params
+		std::vector<float> param_pi;
+		// get projector pi's 10 params
+		for (int vi = pi * 10; vi < pi * 10 + 10; vi++)
+		{
+			param_pi.push_back(params[vi]);
+		}
+		// get camera and sphere 13 params 
+		for (int vi = NPROJ * 10; vi < NPROJ * 10 + 13; vi++)
+		{
+			param_pi.push_back(params[vi]);
+		}
+		/// step 2: compute the error and sub-jacobian matrix
 		std::vector<double> err_pi;
 		cv::Mat_<double> A, B, C;
-		function_mincost(param_pi, m_cam_pts[pi], m_proj_pts[pi], err_pi, A, B, C);
-		/// attach to err array
+		function_mincost(param_pi, m_cam_pts[pi], m_proj_pts[pi], err_pi, true, A, B, C);
+		/// step 3: attach to err array
 		all_err.insert(all_err.end(), err_pi.begin(), err_pi.end());
-		/// compute jacobian
+		/// step 4: attach to overall jacobian
 		cv::Mat_<double> J_A_zero;
 		J_A_zero = cv::Mat::zeros(A.rows, NPROJ * 10, CV_64FC1);
-		J_A_zero(cv::Range(0, J_A_zero.rows), cv::Range(pi * 10, pi * 10 + 10)) = A;
+		cv::Mat_<double> subJ_A = J_A_zero(cv::Range(0, J_A_zero.rows), cv::Range(pi * 10, pi * 10 + 10));
+		A.copyTo(subJ_A);
+
 		cv::Mat_<double> J_pi;
 		cv::hconcat(J_A_zero, B, J_pi);
 		cv::hconcat(J_pi, C, J_pi);
-		if (p->empty())
+		if (Jac.empty())
 		{
-			*p = J_pi;
+			Jac = J_pi.clone();
 		}
 		else
-			cv::vconcat(*p, J_pi, *p);
+			cv::vconcat(Jac, J_pi, Jac);
 	}
-	/// transfer to local data type real_1d_array
-	err.setcontent(all_err.size(), all_err.data());	
+	/// step 5: transfer to local data type real_1d_array: fi
+	for (int i = 0; i < all_err.size(); i++)
+	{
+		fi[i] = all_err[i];
+	}
+	/// step 6: transfer to local data type real_1d_array: Jac
+	for (int i = 0; i < Jac.rows; i++)
+	{
+		for (int j = 0; j < Jac.cols; j++)
+		{
+			jac[i][j] = Jac.at<double>(i, j);
+		}
+	}
 }
 
-void func_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
-{
-	// todo: transfer opencv jac matrix to real_2d_array
-}
 
-
-void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
+void  function1_fvec(const real_1d_array &x, real_1d_array &fi1, void *ptr)
 {
-	////
-	//// this callback calculates
-	//// f0(x0,x1) = 100*(x0+3)^4,
-	//// f1(x0,x1) = (x1-3)^4
-	////
-	//fi[0] = 10 * pow(x[0] + 3, 2);
-	//fi[1] = pow(x[1] - 3, 2);
-	//int *p = static_cast<int*>(ptr);
-	//std::cout << p[0] << std::endl;
+	//
+	// this callback calculates
+	// f0(x0,x1) = 100*(x0+3)^4,
+	// f1(x0,x1) = (x1-3)^4
+	//
+	
+	for (int i = 0; i < 3; i++)
+	{
+		switch (i)
+		{ case 0:
+			fi1[i] = 10 * pow(x[0] + 3, 2);
+			break;
+		case 1:
+			fi1[i] = pow(x[1] - 3, 2);
+			break;
+		case 2:
+			fi1[i] = pow(x[0] + x[1], 2);
+			break;
+		}
+	}
+	
+	double* jac = static_cast<double*>(ptr);
+
+	jac[0] = 20 * (x[0] + 3);
+	jac[1] = 0;
+	jac[2] = 0;
+	jac[3] = 2 * (x[1] - 3);
+	jac[4] = 2 * (x[0] + x[1]);
+	jac[5] = 2 * (x[1] + x[0]);
 }
 void  function1_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
 {
-	////
-	//// this callback calculates
-	//// f0(x0,x1) = 100*(x0+3)^4,
-	//// f1(x0,x1) = (x1-3)^4
-	//// and Jacobian matrix J = [dfi/dxj]
-	////
+	//
+	// this callback calculates
+	// f0(x0,x1) = 100*(x0+3)^4,
+	// f1(x0,x1) = (x1-3)^4
+	// and Jacobian matrix J = [dfi/dxj]
+	//
 	//fi[0] = 10 * pow(x[0] + 3, 2);
 	//fi[1] = pow(x[1] - 3, 2);
+
+
+	double* tempJ = static_cast<double*>(ptr);
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 2; j++)
+		{
+			jac[i][j] = tempJ[i * 2 + j];
+			//std::cout << jac[i][j] << " ";
+		}
+	//std::cout << std::endl;
+
+
 	//jac[0][0] = 20 * (x[0] + 3);
 	//jac[0][1] = 0;
 	//jac[1][0] = 0;
 	//jac[1][1] = 2 * (x[1] - 3);
-	//int *p = static_cast<int*>(ptr);
-	//std::cout << p[1] << std::endl;
+	//jac[2][0] = 2 * (x[0] + x[1]);
+	//jac[2][1] = 2 * (x[1] + x[0]);
 }
 
 int main(int argc, char **argv)
@@ -143,7 +216,7 @@ int main(int argc, char **argv)
 
 	// step 2: hard-code initial guess vector
 	double p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16425, 1.67746, -2.59486, -0.11809, 0.30305, 1.04268, 996.51215, 1002.67977, 512.06846, 771.93374, -0.96035, -0.25020, 2.72969, 0.58512, -0.29760, 0.52548, 996.51215, 1002.67977, 512.06846, 771.93374, 0.16586, -0.71275, -0.11698, 0.73967, -0.36260, 0.65142, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
-	//float p0[] = { 996.51215, 1002.67977, 512.06846, 771.93374, 1.10698, -0.04101, 0.01969, 0.07523, 0.27022, 0.95986, -0.02915, -0.00076, 1.56098, 1.11870, 1026.27057, 1028.92285, 664.43693, 498.78765, -0.37914, 0.25287, -0.15159, 0.00042, -0.00094 };
+	//double p0[] = { 1016.87820,1029.38485,507.92715,754.08783,1.10656,-0.05432,0.01538,0.11139,0.36497,0.84614,1023.35620,1035.13364,499.92493,744.55160,0.17864,1.65197,-2.62566,-0.06159,0.39637,0.92306,1020.33377,1005.98899,489.76017,788.66973,-0.94338,-0.23343,2.73796,0.61566,-0.32681,0.43906,1018.48668,1004.88681,474.77748,774.45156,0.17243,-0.69404,-0.11015,0.79895,-0.33946,0.53568,-0.02809,0.00076,1.51831,1.04394,1052.61151,1047.93345,666.54580,490.87032,-0.30752,0.12802,-0.01481,0.00103,0.00094 };
 	///TEST: test if func_FC works: yes it works
 	//std::vector<float> params (p0, p0 + sizeof(p0)/sizeof(float));
 	//std::vector<float> err;
@@ -152,45 +225,41 @@ int main(int argc, char **argv)
 	//function_mincost(params, m_cam_pts[0], m_proj_pts[0], err, A, B, C);
 
 	// step 3: optimize
-	//real_1d_array param;
-	//param.setcontent(53, p0);
+	std::vector<double> pvec(p0, p0 + sizeof(p0) / sizeof(double));
+	real_1d_array params;
+	params.setcontent(53, pvec.data());
 
-	//double epsx = 0.0000000001;
-	//ae_int_t maxits = 0;
-	//minlmstate state;
-	//minlmreport rep;
+	double epsx = 0.000000001;
+	ae_int_t maxits = 0;
+	minlmstate state;
+	minlmreport rep;
+	real_1d_array bndl, bndu;
+	double RATIO = 5;
+	bndl.setlength(params.length());
+	bndu.setlength(params.length());
+	for (int i = 0; i < params.length(); i++)
+	{
+		bndl[i] = params[i] - std::abs(params[i]) * RATIO;
+		bndu[i] = params[i] + std::abs(params[i]) * RATIO;
+	}
 
-	//minlmcreatevj(2, param, state);
-	real_1d_array err, params;
-	cv::Mat Jac;
-	params.setcontent(53, p0);
-	func_err(params, err, &Jac);
-	
-	////
-	//// This example demonstrates minimization of F(x0,x1) = f0^2+f1^2, where 
-	////
-	////     f0(x0,x1) = 10*(x0+3)^2
-	////     f1(x0,x1) = (x1-3)^2
-	////
-	//// using "VJ" mode of the Levenberg-Marquardt optimizer.
-	////
-	//// Optimization algorithm uses:
-	//// * function vector f[] = {f1,f2}
-	//// * Jacobian matrix J = {dfi/dxj}.
-	////
-	//real_1d_array x = "[0,0]";  // initial vector
-	//double epsx = 0.0000000001; // The subroutine finishes its work if on k+1-th iteration the condition |v| <= EpsX is fulfilled
-	//							//Recommended values: 1E-9 ... 1E-12
-	//ae_int_t maxits = 0;
-	//minlmstate state;
-	//minlmreport rep;
+	unsigned int NUM_BLOB(0);
 
-	//int a[2] = { 0,1 };
-	//minlmcreatevj(2, x, state); // create vector + jacobian optimization scheme
-	//minlmsetcond(state, epsx, maxits); // set stop condition: If MaxIts=0, the number of iterations is unlimited.
-	//alglib::minlmoptimize(state, function1_fvec, function1_jac, NULL, &a); // Running algorithm
-	//minlmresults(state, x, rep); // obtain results
-
-	//printf("%s\n", x.tostring(2).c_str()); // EXPECTED: [-3,+3]
+	for(int i = 0;i < NPROJ; i++)
+	{
+		NUM_BLOB += m_cam_pts[i].size();
+	}
+	try {
+		alglib::minlmcreatevj(NUM_BLOB * 2, params, state);
+		//alglib::minlmcreatev(NUM_BLOB*2, params, 0.0001, state);
+		//minlmsetbc(state, bndl, bndu);
+		minlmsetacctype(state, 1);
+		alglib::minlmsetcond(state, epsx, maxits); // set stop condition: If MaxIts=0, the number of iterations is unlimited.
+		//alglib::minlmoptimize(state, func_err); // Running algorithm
+		minlmoptimize(state, func_err, func_jac, NULL); // Running algorithm
+		alglib::minlmresults(state, params, rep); // obtain results
+	}
+	catch (alglib::ap_error& e) { std::cerr << e.msg << std::endl; }
+	printf("%s\n", params.tostring(6).c_str()); // EXPECTED: [-3,+3]
 	return 0;
 }
