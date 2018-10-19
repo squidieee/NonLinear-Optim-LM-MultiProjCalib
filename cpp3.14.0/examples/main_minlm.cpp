@@ -5,11 +5,6 @@
 #include "optimization.h"
 #include <opencv2/opencv.hpp>
 
-/* 
-* minlm_d_vj example, which shows how to do optimization using analytic Jacobian
-* http://www.alglib.net/optimization/levenbergmarquardt.php#downloadsection
-*/
-
 using namespace alglib;
 
 const int NPROJ = 4; // replace with global setting
@@ -18,7 +13,6 @@ std::vector<std::vector<cv::Point2f>> m_proj_pts; // replace with displaycalibra
 
 void function_mincost(const std::vector<float>& params, std::vector<cv::Point2f>& cam_pts, std::vector<cv::Point2f>& proj_pts, std::vector<double>& err, bool needJac, cv::Mat_<double>& jac_A = cv::Mat_<double>(), cv::Mat_<double>& jac_B = cv::Mat_<double>(), cv::Mat_<double>& jac_C = cv::Mat_<double>());
 
-// TEST FUNCTION
 bool loadBlobData(const std::string& file_name, const int proj_idx)
 {
 	using namespace cv;
@@ -132,68 +126,6 @@ void func_jac(const real_1d_array &params, real_1d_array &fi, real_2d_array &jac
 }
 
 
-void  function1_fvec(const real_1d_array &x, real_1d_array &fi1, void *ptr)
-{
-	//
-	// this callback calculates
-	// f0(x0,x1) = 100*(x0+3)^4,
-	// f1(x0,x1) = (x1-3)^4
-	//
-	
-	for (int i = 0; i < 3; i++)
-	{
-		switch (i)
-		{ case 0:
-			fi1[i] = 10 * pow(x[0] + 3, 2);
-			break;
-		case 1:
-			fi1[i] = pow(x[1] - 3, 2);
-			break;
-		case 2:
-			fi1[i] = pow(x[0] + x[1], 2);
-			break;
-		}
-	}
-	
-	double* jac = static_cast<double*>(ptr);
-
-	jac[0] = 20 * (x[0] + 3);
-	jac[1] = 0;
-	jac[2] = 0;
-	jac[3] = 2 * (x[1] - 3);
-	jac[4] = 2 * (x[0] + x[1]);
-	jac[5] = 2 * (x[1] + x[0]);
-}
-void  function1_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
-{
-	//
-	// this callback calculates
-	// f0(x0,x1) = 100*(x0+3)^4,
-	// f1(x0,x1) = (x1-3)^4
-	// and Jacobian matrix J = [dfi/dxj]
-	//
-	//fi[0] = 10 * pow(x[0] + 3, 2);
-	//fi[1] = pow(x[1] - 3, 2);
-
-
-	double* tempJ = static_cast<double*>(ptr);
-	for (int i = 0; i < 3; i++)
-		for (int j = 0; j < 2; j++)
-		{
-			jac[i][j] = tempJ[i * 2 + j];
-			//std::cout << jac[i][j] << " ";
-		}
-	//std::cout << std::endl;
-
-
-	//jac[0][0] = 20 * (x[0] + 3);
-	//jac[0][1] = 0;
-	//jac[1][0] = 0;
-	//jac[1][1] = 2 * (x[1] - 3);
-	//jac[2][0] = 2 * (x[0] + x[1]);
-	//jac[2][1] = 2 * (x[1] + x[0]);
-}
-
 int main(int argc, char **argv)
 {
 	// step 1: read xml files to m_cam_pts and m_proj_pts
@@ -210,7 +142,6 @@ int main(int argc, char **argv)
 			std::cout << "zero vector found" << std::endl;
 			return -1;
 		}
-		
 	}
 	// todo : convert to emxarray
 
